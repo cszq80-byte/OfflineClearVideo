@@ -127,5 +127,5 @@ final class RealEsrganEnhancer implements AutoCloseable {
     }
     private static int clamp(int v,int low,int high){return Math.max(low,Math.min(high,v));}
     private static float clamp01(float v){return Math.max(0f,Math.min(1f,v));}
-    @Override public void close(){session.close();}
+    @Override public void close() throws Exception {session.close();}
 }
