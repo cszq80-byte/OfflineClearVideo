@@ -98,6 +98,39 @@ public class VideoPipelineInstrumentedTest {
         }
     }
 
+    /** Tests actual Real-ESRGAN full-color frame processing, not just isolated inference. */
+    @Test public void realEsrganVideoExportEndToEnd() throws Exception {
+        File inputFile=new File(context.getCacheDir(),"strong_input.mp4");
+        File outputFile=new File(context.getCacheDir(),"strong_output.mp4");
+        try {
+            encodeSampleVideo(inputFile);
+            VideoProcessor.Result result=VideoProcessor.process(
+                context,Uri.fromFile(inputFile),Uri.fromFile(outputFile),
+                OutputProfile.QUALITY_AI,(progress,message)->{},new AtomicBoolean());
+            assertEquals(128,result.width);
+            assertEquals(128,result.height);
+            assertTrue("No Real-ESRGAN video frames processed",result.frames>=5);
+            assertTrue("Real-ESRGAN video output missing",outputFile.length()>500);
+            MediaExtractor verifier=new MediaExtractor();
+            try {
+                verifier.setDataSource(outputFile.getAbsolutePath());
+                boolean valid=false;
+                for(int i=0;i<verifier.getTrackCount();i++) {
+                    MediaFormat fmt=verifier.getTrackFormat(i);
+                    if(fmt.getString(MediaFormat.KEY_MIME).startsWith("video/")) {
+                        assertEquals(128,fmt.getInteger(MediaFormat.KEY_WIDTH));
+                        assertEquals(128,fmt.getInteger(MediaFormat.KEY_HEIGHT));
+                        verifier.selectTrack(i);
+                        ByteBuffer sample=ByteBuffer.allocate(1024*1024);
+                        assertTrue("No decodable video sample",verifier.readSampleData(sample,0)>0);
+                        valid=true;
+                    }
+                }
+                assertTrue("No valid video track",valid);
+            } finally { verifier.release(); }
+        } finally { inputFile.delete();outputFile.delete(); }
+    }
+
     private static void fillPlane(Image.Plane plane,int width,int height,int value) {
         ByteBuffer b=plane.getBuffer();
         int row=plane.getRowStride(),stride=plane.getPixelStride();
