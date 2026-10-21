@@ -1,10 +1,10 @@
 # OfflineClearVideo — 安卓离线 AI 视频清晰增强（实验性）
 
-中文 Android 视频处理应用：本地视频选择、普通画质增强、2 倍 FSRCNN 神经网络超分辨率、MP4 H.264 导出、可兼容音轨直通。本 App 不请求 INTERNET 权限；运行时模型已打包在 APK 中。首次安装后不需要联网。
+中文 Android 视频处理应用：从相册视频选择器或文件管理器选取本地视频、普通画质增强、2 倍 FSRCNN 神经网络超分辨率、MP4 H.264 导出、可兼容音轨直通。本 App 不请求 INTERNET 权限；运行时模型已打包在 APK 中。首次安装后不需要联网。
 
 ## 获取 APK
 
-进入 GitHub Actions -> Build Offline Android APK -> 最近一次成功的任务 -> Artifacts 下载 OfflineClearVideo-v0.4-AI-APK，解压得到 app-debug.apk。属于调试签名版，安装时可能弹出安全提示。
+进入 GitHub Actions -> Build Offline Android APK -> 最近一次成功的任务 -> Artifacts 下载 OfflineClearVideo-v0.4.1-AI-APK，解压得到 app-debug.apk。属于调试签名版，安装时可能弹出安全提示。
 
 ## AI 模型
 

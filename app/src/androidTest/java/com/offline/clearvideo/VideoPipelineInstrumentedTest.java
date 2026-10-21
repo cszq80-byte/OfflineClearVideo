@@ -1,6 +1,8 @@
 package com.offline.clearvideo;
 
 import android.content.Context;
+import android.content.Intent;
+import android.provider.MediaStore;
 import android.media.Image;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -22,6 +24,17 @@ import static org.junit.Assert.*;
 @RunWith(AndroidJUnit4.class)
 public class VideoPipelineInstrumentedTest {
     private final Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();
+
+    @Test public void galleryPickerFiltersVideos() {
+        Intent modern=MainActivity.galleryIntent(true);
+        assertEquals(MediaStore.ACTION_PICK_IMAGES, modern.getAction());
+        assertEquals("video/*", modern.getType());
+        assertTrue((modern.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0);
+        Intent fallback=MainActivity.galleryIntent(false);
+        assertEquals(Intent.ACTION_GET_CONTENT, fallback.getAction());
+        assertEquals("video/*", fallback.getType());
+        assertTrue(fallback.hasCategory(Intent.CATEGORY_OPENABLE));
+    }
 
     @Test public void modelIsBundledAndRunsOffline() throws Exception {
         byte[] y=new byte[64*64],out=new byte[128*128];
