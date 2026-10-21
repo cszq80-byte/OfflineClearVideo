@@ -2,6 +2,9 @@ package com.offline.clearvideo;
 import android.app.Activity;
 import android.os.Bundle;
 import android.content.Intent;
+import android.content.ActivityNotFoundException;
+import android.os.Build;
+import android.provider.MediaStore;
 import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -20,14 +23,14 @@ import java.util.Date;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
-  private static final int OPEN=7001,SAVE=7002;
+  private static final int OPEN_FILE=7001,SAVE=7002,OPEN_GALLERY=7003;
   private final AtomicBoolean canceled = new AtomicBoolean();
   private final int bg=Color.rgb(12,19,32),panel=Color.rgb(26,37,54),teal=Color.rgb(78,219,201);
   private Uri video;
   private boolean working;
   private TextView status,info;
   private ProgressBar progress;
-  private Button choose,run,stop;
+  private Button choose,browse,run,stop;
   private RadioGroup modes;
   private VideoView preview;
   private int px(float dp){return (int)(getResources().getDisplayMetrics().density*dp+0.5f);}
@@ -59,7 +62,8 @@ public final class MainActivity extends Activity {
     hint.setTextColor(Color.rgb(177,195,212));row(root,hint,7);
     LinearLayout src=section(root,"① 选择视频");
     info=text("尚未选择视频",13,false);row(src,info,10);
-    choose=button("选择手机视频");row(src,choose,13);choose.setOnClickListener(v->pickVideo());
+    choose=button("从相册选择视频");row(src,choose,13);choose.setOnClickListener(v->pickVideoFromGallery());
+    browse=button("从文件管理器选择视频");row(src,browse,8);browse.setOnClickListener(v->pickVideoFromFiles());
     preview=new VideoView(this);LinearLayout.LayoutParams pv=new LinearLayout.LayoutParams(-1,px(175));pv.topMargin=px(8);
     src.addView(preview,pv);preview.setVisibility(View.GONE);
     LinearLayout settings=section(root,"② 选择增强方式");
@@ -84,9 +88,35 @@ public final class MainActivity extends Activity {
     b.setButtonTintList(ColorStateList.valueOf(teal));b.setPadding(px(2),px(6),0,px(6));
     modes.addView(b);if(checked)b.setChecked(true);
   }
-  private void pickVideo() {
-    if(working)return;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("video/*");
-    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,OPEN);
+  /** The system Photo Picker opens a gallery-like video grid on Android 13+. */
+  static Intent galleryIntent(boolean photoPickerAvailable) {
+    Intent i=photoPickerAvailable?new Intent(MediaStore.ACTION_PICK_IMAGES):new Intent(Intent.ACTION_GET_CONTENT);
+    i.setType("video/*");
+    if(!photoPickerAvailable)i.addCategory(Intent.CATEGORY_OPENABLE);
+    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    return i;
+  }
+  private void pickVideoFromGallery() {
+    if(working)return;
+    if(Build.VERSION.SDK_INT>=33) {
+      try {
+        startActivityForResult(galleryIntent(true),OPEN_GALLERY);
+        return;
+      }catch(ActivityNotFoundException|SecurityException ignored){}
+    }
+    try {
+      startActivityForResult(Intent.createChooser(galleryIntent(false),"从相册选择视频"),OPEN_GALLERY);
+    }catch(ActivityNotFoundException|SecurityException e) {
+      status.setText("无法启动相册，请尝试下方的文件管理器入口。");
+    }
+  }
+  private void pickVideoFromFiles() {
+    if(working)return;
+    Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+    i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("video/*");
+    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+    try{startActivityForResult(i,OPEN_FILE);}
+    catch(ActivityNotFoundException e){status.setText("系统没有可用的文件管理器。");}
   }
   private void saveVideo() {
     if(working)return;
@@ -99,8 +129,9 @@ public final class MainActivity extends Activity {
     super.onActivityResult(req,result,data);
     if(result!=RESULT_OK||data==null||data.getData()==null)return;
     Uri u=data.getData();
-    if(req==OPEN) {
-      video=u;try{getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+    if(req==OPEN_FILE||req==OPEN_GALLERY) {
+      video=u;
+      if(req==OPEN_FILE)try{getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
       info.setText(describe(u));preview.setVisibility(View.VISIBLE);preview.setVideoURI(u);
       status.setText("选择模式后可开始导出。");progress.setProgress(0);
     } else if(req==SAVE) start(u);
@@ -124,7 +155,7 @@ public final class MainActivity extends Activity {
     if(video==null||working)return;
     final Uri input=video;final int selected=modes.getCheckedRadioButtonId();
     final int mode=selected==11?OutputProfile.HD:selected==12?OutputProfile.DOUBLE:selected==13?OutputProfile.AI:OutputProfile.NATIVE;
-    working=true;canceled.set(false);choose.setEnabled(false);run.setEnabled(false);stop.setEnabled(true);
+    working=true;canceled.set(false);choose.setEnabled(false);browse.setEnabled(false);run.setEnabled(false);stop.setEnabled(true);
     progress.setProgress(0);status.setText("准备解码器和模型…");preview.pause();
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     new Thread(()->{
@@ -140,7 +171,7 @@ public final class MainActivity extends Activity {
       catch(Exception e){message="处理失败："+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage());}
       if(!good)try{getContentResolver().delete(output,null,null);}catch(Exception ignored){}
       final String result=message;final boolean success=good;
-      runOnUiThread(()->{if(isDestroyed())return;working=false;choose.setEnabled(true);run.setEnabled(true);
+      runOnUiThread(()->{if(isDestroyed())return;working=false;choose.setEnabled(true);browse.setEnabled(true);run.setEnabled(true);
         stop.setEnabled(false);status.setText(result);if(success)progress.setProgress(100);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
       });
