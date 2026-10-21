@@ -1,0 +1,150 @@
+package com.offline.clearvideo;
+import android.app.Activity;
+import android.os.Bundle;
+import android.content.Intent;
+import android.content.res.ColorStateList;
+import android.database.Cursor;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.media.MediaMetadataRetriever;
+import android.net.Uri;
+import android.provider.OpenableColumns;
+import android.view.Gravity;
+import android.view.View;
+import android.view.WindowManager;
+import android.widget.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
+public final class MainActivity extends Activity {
+  private static final int OPEN=7001,SAVE=7002;
+  private final AtomicBoolean canceled = new AtomicBoolean();
+  private final int bg=Color.rgb(12,19,32),panel=Color.rgb(26,37,54),teal=Color.rgb(78,219,201);
+  private Uri video;
+  private boolean working;
+  private TextView status,info;
+  private ProgressBar progress;
+  private Button choose,run,stop;
+  private RadioGroup modes;
+  private VideoView preview;
+  private int px(float dp){return (int)(getResources().getDisplayMetrics().density*dp+0.5f);}
+  private TextView text(String s,int size,boolean bold){
+    TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(-1);
+    if(bold)v.setTypeface(null,Typeface.BOLD);return v;
+  }
+  private Button button(String s){
+    Button b=new Button(this);b.setAllCaps(false);b.setText(s);b.setTextColor(bg);
+    GradientDrawable d=new GradientDrawable();d.setColor(teal);d.setCornerRadius(px(12));b.setBackground(d);
+    return b;
+  }
+  private LinearLayout section(LinearLayout root,String header){
+    LinearLayout box=new LinearLayout(this);box.setOrientation(1);box.setPadding(px(16),px(15),px(16),px(16));
+    GradientDrawable d=new GradientDrawable();d.setColor(panel);d.setCornerRadius(px(16));box.setBackground(d);
+    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=px(17);root.addView(box,lp);
+    box.addView(text(header,17,true));return box;
+  }
+  private void row(LinearLayout parent,View child,int top){
+    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=px(top);parent.addView(child,lp);
+  }
+  @Override public void onCreate(Bundle saved){
+    super.onCreate(saved);getWindow().setStatusBarColor(bg);getWindow().setNavigationBarColor(bg);
+    ScrollView scroll=new ScrollView(this);scroll.setBackgroundColor(bg);
+    LinearLayout root=new LinearLayout(this);root.setOrientation(1);root.setPadding(px(20),px(25),px(20),px(30));
+    scroll.addView(root);setContentView(scroll);
+    TextView title=text("离线视频 AI 清晰增强",25,true);row(root,title,0);
+    TextView hint=text("本地处理 · 无需账号 · 不上传视频",13,false);
+    hint.setTextColor(Color.rgb(177,195,212));row(root,hint,7);
+    LinearLayout src=section(root,"① 选择视频");
+    info=text("尚未选择视频",13,false);row(src,info,10);
+    choose=button("选择手机视频");row(src,choose,13);choose.setOnClickListener(v->pickVideo());
+    preview=new VideoView(this);LinearLayout.LayoutParams pv=new LinearLayout.LayoutParams(-1,px(175));pv.topMargin=px(8);
+    src.addView(preview,pv);preview.setVisibility(View.GONE);
+    LinearLayout settings=section(root,"② 选择增强方式");
+    modes=new RadioGroup(this);modes.setOrientation(1);
+    addMode(10,"清晰优化 · 原始分辨率",true);
+    addMode(11,"高清增强 · 最高 1080P",false);
+    addMode(12,"超清增强 · 最多 2 倍 / 4K",false);
+    addMode(13,"AI 神经网络超分辨率 · 2 倍（720P 以下，较慢）",false);
+    row(settings,modes,8);
+    LinearLayout output=section(root,"③ 导出高清 MP4");
+    run=button("开始离线处理");row(output,run,8);run.setOnClickListener(v->saveVideo());
+    progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+    progress.setMax(100);progress.setProgressTintList(ColorStateList.valueOf(teal));row(output,progress,15);
+    status=text("尚未开始",13,false);row(output,status,8);
+    stop=button("取消处理");row(output,stop,12);stop.setEnabled(false);
+    stop.setOnClickListener(v->{canceled.set(true);status.setText("正在取消…");stop.setEnabled(false);});
+    TextView tip=text("提示：AI 模式调用 APK 内置的 FSRCNN 神经网络模型；普通模式使用去噪、锐化和缩放。H.264 编码，部分音频格式可能无法保留。第一次请使用短视频测试。",12,false);
+    tip.setTextColor(Color.rgb(170,185,202));row(root,tip,16);
+  }
+  private void addMode(int id,String s,boolean checked) {
+    RadioButton b=new RadioButton(this);b.setId(id);b.setText(s);b.setTextColor(-1);b.setTextSize(13);
+    b.setButtonTintList(ColorStateList.valueOf(teal));b.setPadding(px(2),px(6),0,px(6));
+    modes.addView(b);if(checked)b.setChecked(true);
+  }
+  private void pickVideo() {
+    if(working)return;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("video/*");
+    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,OPEN);
+  }
+  private void saveVideo() {
+    if(working)return;
+    if(video==null){status.setText("请先选择视频。");return;}
+    Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("video/mp4");
+    i.putExtra(Intent.EXTRA_TITLE,"高清增强_"+new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date())+".mp4");
+    i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);startActivityForResult(i,SAVE);
+  }
+  @Override @SuppressWarnings("deprecation") protected void onActivityResult(int req,int result,Intent data){
+    super.onActivityResult(req,result,data);
+    if(result!=RESULT_OK||data==null||data.getData()==null)return;
+    Uri u=data.getData();
+    if(req==OPEN) {
+      video=u;try{getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+      info.setText(describe(u));preview.setVisibility(View.VISIBLE);preview.setVideoURI(u);
+      status.setText("选择模式后可开始导出。");progress.setProgress(0);
+    } else if(req==SAVE) start(u);
+  }
+  private String describe(Uri uri) {
+    String name="已选择视频";
+    try(Cursor c=getContentResolver().query(uri,null,null,null,null)) {
+      if(c!=null&&c.moveToFirst()){int col=c.getColumnIndex(OpenableColumns.DISPLAY_NAME);if(col>=0)name=c.getString(col);}
+    }catch(Exception ignored){}
+    MediaMetadataRetriever m=new MediaMetadataRetriever();
+    try {
+      m.setDataSource(this,uri);
+      String w=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+      String h=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+      String d=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+      if(w!=null&&h!=null&&d!=null)name+="\n"+w+"×"+h+" · "+(Long.parseLong(d)/1000)+" 秒";
+    }catch(Exception ignored){}finally{try{m.release();}catch(Exception ignored){}}
+    return name;
+  }
+  private void start(Uri output) {
+    if(video==null||working)return;
+    final Uri input=video;final int selected=modes.getCheckedRadioButtonId();
+    final int mode=selected==11?OutputProfile.HD:selected==12?OutputProfile.DOUBLE:selected==13?OutputProfile.AI:OutputProfile.NATIVE;
+    working=true;canceled.set(false);choose.setEnabled(false);run.setEnabled(false);stop.setEnabled(true);
+    progress.setProgress(0);status.setText("准备解码器和模型…");preview.pause();
+    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    new Thread(()->{
+      boolean good=false;String message;
+      try {
+        VideoProcessor.Result r=VideoProcessor.process(getApplicationContext(),input,output,mode,
+          (percent,description)->runOnUiThread(()->{if(!isDestroyed()){progress.setProgress(percent);status.setText(description);}}),canceled);
+        message="完成 · "+r.width+"×"+r.height+" · "+r.frames+" 帧"+
+          (r.retainedAudio?" · 已保留声音":r.audioPresent?" · 注意：原始音频格式不兼容，已静音":"");
+        good=true;
+      }catch(InterruptedException e){message="处理已取消，输出文件将删除。";}
+      catch(OutOfMemoryError e){message="内存不足，请用短视频或较低的增强档位。";}
+      catch(Exception e){message="处理失败："+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage());}
+      if(!good)try{getContentResolver().delete(output,null,null);}catch(Exception ignored){}
+      final String result=message;final boolean success=good;
+      runOnUiThread(()->{if(isDestroyed())return;working=false;choose.setEnabled(true);run.setEnabled(true);
+        stop.setEnabled(false);status.setText(result);if(success)progress.setProgress(100);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+      });
+    },"offline-processor").start();
+  }
+  @Override protected void onDestroy(){canceled.set(true);if(preview!=null)preview.stopPlayback();super.onDestroy();}
+}
