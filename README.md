@@ -1,15 +1,18 @@
-# OfflineClearVideo — 安卓离线 AI 视频清晰增强（实验性）
+# OfflineClearVideo — 离线 AI 视频修复（v0.5，实验性）
+Android 8.0+；无 INTERNET 权限，全部视频逐帧处理均在手机离线完成。
 
-中文 Android 视频处理应用：从相册视频选择器或文件管理器选取本地视频、普通画质增强、2 倍 FSRCNN 神经网络超分辨率、MP4 H.264 导出、可兼容音轨直通。本 App 不请求 INTERNET 权限；运行时模型已打包在 APK 中。首次安装后不需要联网。
+## 真正的 AI 选项
+- **高画质 AI（Real-ESRGAN x4v3 → 2x 输出）**：RGB 全彩模型，生成更丰富的画面细节；默认推荐仅针对短片测试，移动端 CPU 推理可能非常慢。输入上限 720P。
+- **快速 AI（FSRCNN）**：旧版，仅亮度通道增强，细节改善有限。
+- 普通高清/4K：传统锐化与图像插值，只提高分辨率，不能产生新细节。
 
-## 获取 APK
+## 模型和校验
+编译时从 `CoderViking/realesr-general-x4v3-onnx` 下载 Real-ESRGAN 的 ONNX 导出，SHA256 严格校验；采用 ONNX Runtime Android CPU 推理。模型原为 x4，局部裁切、推理之后下采样到 2x，控制内存和导出大小。公开权重 BSD-3-Clause。另保留旧 FSRCNN 模型。
 
-进入 GitHub Actions -> Build Offline Android APK -> 最近一次成功的任务 -> Artifacts 下载 OfflineClearVideo-v0.4.1-AI-APK，解压得到 app-debug.apk。属于调试签名版，安装时可能弹出安全提示。
+工作流不仅测试模型和 MP4 导出，还在合成图案上验证新版模型与插值输出存在显著差异；合成图案对比不能证明用户实际视频必定显著改善。测试证据在 GitHub Actions 的构建产物内。
 
-## AI 模型
+## 已知限制
+新模型初版为 **CPU 推理**，可能每帧耗时数秒乃至更长，不建议直接处理长视频。不同手机的视频硬件编码兼容性仍需实测。失焦、噪点极重、严重压缩片源可能无法可靠恢复真实细节。输出一般为 H.264 MP4；AAC/AMR 音轨可直通，其他音频格式可能丢失。HDR/DRM 暂不支持。
 
-构建期间从 Saafke/FSRCNN_Tensorflow 固定提交下载 Apache-2.0 协议的 FSRCNN x2 预训练 GraphDef，转换为 TensorFlow Lite 并核验与原计算图的数值差异。转换在 GitHub Actions 发生，APK 在手机上无需下载模型。处理 Y 亮度分量，色度双线性放大；不保证能恢复不存在的纹理。
-
-## 限制
-
-AI 限制输入 <= 1280×720（同样适用竖屏）、逐帧纯 CPU 运行，可能很慢和耗电；普通增强支持到 4K 输入上限。安卓硬件编码器差异较大，支持 YUV_420_888 帧读写的设备才能导出。HDR/DRM 暂不支持。支持 AAC/AMR 的音轨直接保留，其他音频格式可能静音。务必短视频验证后再处理长视频。
+## 构建
+打开 GitHub Actions > Build Offline Android APK > 最近一次成功任务，下载 `OfflineClearVideo-v0.5-RealESRGAN-APK` ZIP，解压 app-debug.apk 安装。

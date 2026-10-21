@@ -30,6 +30,7 @@ final class VideoProcessor {
         MediaMuxer muxer=null;
         ParcelFileDescriptor fd=null;
         AiEnhancer ai=null;
+        RealEsrganEnhancer quality=null;
         boolean muxStarted=false;
         try {
             emit(listener,0,"读取本地视频信息…");
@@ -65,6 +66,11 @@ final class VideoProcessor {
                 emit(listener,0,"加载 APK 内置的 FSRCNN 神经网络模型…");
                 ai=new AiEnhancer(context);
             }
+            if(mode==OutputProfile.QUALITY_AI) {
+                emit(listener,0,"加载 Real-ESRGAN 高画质 RGB 模型（首次耗时较长）…");
+                quality=new RealEsrganEnhancer(context);
+            }
+            final boolean bt709=integer(vf,MediaFormat.KEY_COLOR_STANDARD,1)==1;
             MediaFormat ef=MediaFormat.createVideoFormat("video/avc",w,h);
             ef.setInteger(MediaFormat.KEY_COLOR_FORMAT,MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
             ef.setInteger(MediaFormat.KEY_BIT_RATE,OutputProfile.bitrate(w,h,fps));
@@ -161,7 +167,10 @@ final class VideoProcessor {
                                 if(src==null||dst==null)throw new IllegalStateException("本机不支持逐帧 YUV 图像访问");
                                 if(scratch==null)
                                     scratch=new YuvEnhancer.Scratch(src.getCropRect().width(),src.getCropRect().height(),w,h);
-                                YuvEnhancer.transform(src,dst,scratch,ai,fullRange,canceled);
+                                if(quality!=null)
+                                    YuvEnhancer.transformHQ(src,dst,scratch,quality,fullRange,bt709,canceled);
+                                else
+                                    YuvEnhancer.transform(src,dst,scratch,ai,fullRange,canceled);
                             }finally {if(src!=null)src.close();if(dst!=null)dst.close();}
                             long pts=Math.max(lastFramePts+1,Math.max(0,di.presentationTimeUs));lastFramePts=pts;
                             encoder.queueInputBuffer(index,0,w*h*3/2,pts,0);
@@ -171,7 +180,7 @@ final class VideoProcessor {
                             long now=SystemClock.elapsedRealtime();
                             if(now-lastProgress>=400) {
                                 int percent=duration>0?(int)Math.min(98,100L*pts/duration):0;
-                                emit(listener,percent,(mode==OutputProfile.AI?"AI 2 倍":"普通增强")+" · "+(pts/1000000)+" 秒 / "+frames+" 帧 · "+w+"×"+h);
+                                emit(listener,percent,(mode==OutputProfile.QUALITY_AI?"Real-ESRGAN RGB":mode==OutputProfile.AI?"快速 AI":"普通增强")+" · "+(pts/1000000)+" 秒 / "+frames+" 帧 · "+w+"×"+h);
                                 lastProgress=now;
                             }
                         }
@@ -219,6 +228,7 @@ final class VideoProcessor {
             if(muxer!=null){if(muxStarted)try{muxer.stop();}catch(Exception ignored){}try{muxer.release();}catch(Exception ignored){}}
             if(fd!=null)try{fd.close();}catch(Exception ignored){}
             if(ai!=null)try{ai.close();}catch(Exception ignored){}
+            if(quality!=null)try{quality.close();}catch(Exception ignored){}
         }
     }
     private static void copyAudio(MediaExtractor x,MediaMuxer m,int track,ByteBuffer b,

@@ -36,6 +36,24 @@ public class VideoPipelineInstrumentedTest {
         assertTrue(fallback.hasCategory(Intent.CATEGORY_OPENABLE));
     }
 
+    @Test public void realEsrganProducesDifferentDetailThanOrdinaryInterpolation() throws Exception {
+        YuvEnhancer.Scratch scratch=new YuvEnhancer.Scratch(64,64,128,128);
+        for(int y=0;y<64;y++)for(int x=0;x<64;x++)
+            scratch.y[y*64+x]=(byte)(40+((x*13+y*7)%145));
+        for(int i=0;i<scratch.u.length;i++) {
+            scratch.u[i]=(byte)(80+i%80);
+            scratch.v[i]=(byte)(120+i%70);
+        }
+        try(RealEsrganEnhancer model=new RealEsrganEnhancer(context)) {
+            model.upscale(scratch,false,true,new AtomicBoolean());
+        }
+        byte[] baseline=new byte[128*128];
+        YuvEnhancer.resize(scratch.y,64,64,baseline,128,128);
+        long difference=0;
+        for(int i=0;i<baseline.length;i++)
+            difference+=Math.abs((scratch.oy[i]&255)-(baseline[i]&255));
+        assertTrue("AI should not equal bilinear interpolation",difference>10000);
+    }
     @Test public void modelIsBundledAndRunsOffline() throws Exception {
         byte[] y=new byte[64*64],out=new byte[128*128];
         Arrays.fill(y,(byte)110);

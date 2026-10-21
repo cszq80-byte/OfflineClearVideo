@@ -38,6 +38,26 @@ final class YuvEnhancer {
         write(q[0],d.left,d.top,b.dw,b.dh,b.oy);
         write(q[1],d.left/2,d.top/2,ow,oh,b.ou);write(q[2],d.left/2,d.top/2,ow,oh,b.ov);
     }
+    /** New full-RGB neural path, deliberately separate from legacy FSRCNN. */
+    static void transformHQ(Image source,Image target,Scratch b,
+                            RealEsrganEnhancer ai,boolean fullRange,boolean bt709,
+                            AtomicBoolean cancel) throws Exception {
+        if(source.getFormat()!=ImageFormat.YUV_420_888 ||
+           target.getFormat()!=ImageFormat.YUV_420_888)
+            throw new IllegalArgumentException("手机编解码器没有可读取的 YUV 图像");
+        Rect s=source.getCropRect(),d=target.getCropRect();
+        if(s.width()!=b.sw||s.height()!=b.sh||d.width()<b.dw||d.height()<b.dh)
+            throw new IllegalArgumentException("视频帧尺寸变化");
+        Image.Plane[] p=source.getPlanes(),q=target.getPlanes();
+        read(p[0],s.left,s.top,b.sw,b.sh,b.y);
+        int cw=(b.sw+1)/2,ch=(b.sh+1)/2;
+        read(p[1],s.left/2,s.top/2,cw,ch,b.u);
+        read(p[2],s.left/2,s.top/2,cw,ch,b.v);
+        ai.upscale(b,fullRange,bt709,cancel);
+        write(q[0],d.left,d.top,b.dw,b.dh,b.oy);
+        write(q[1],d.left/2,d.top/2,(b.dw+1)/2,(b.dh+1)/2,b.ou);
+        write(q[2],d.left/2,d.top/2,(b.dw+1)/2,(b.dh+1)/2,b.ov);
+    }
     static void read(Image.Plane p,int left,int top,int w,int h,byte[] data) {
         ByteBuffer b=p.getBuffer();int row=p.getRowStride(),pixel=p.getPixelStride();
         for(int y=0;y<h;y++) for(int x=0;x<w;x++) {

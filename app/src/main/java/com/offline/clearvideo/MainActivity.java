@@ -71,7 +71,8 @@ public final class MainActivity extends Activity {
     addMode(10,"清晰优化 · 原始分辨率",true);
     addMode(11,"高清增强 · 最高 1080P",false);
     addMode(12,"超清增强 · 最多 2 倍 / 4K",false);
-    addMode(13,"AI 神经网络超分辨率 · 2 倍（720P 以下，较慢）",false);
+    addMode(13,"快速 AI · FSRCNN 2 倍（旧版，提升有限）",false);
+    addMode(14,"高画质 AI · Real-ESRGAN 2 倍（720P以下，很慢）",false);
     row(settings,modes,8);
     LinearLayout output=section(root,"③ 导出高清 MP4");
     run=button("开始离线处理");row(output,run,8);run.setOnClickListener(v->saveVideo());
@@ -80,7 +81,7 @@ public final class MainActivity extends Activity {
     status=text("尚未开始",13,false);row(output,status,8);
     stop=button("取消处理");row(output,stop,12);stop.setEnabled(false);
     stop.setOnClickListener(v->{canceled.set(true);status.setText("正在取消…");stop.setEnabled(false);});
-    TextView tip=text("提示：AI 模式调用 APK 内置的 FSRCNN 神经网络模型；普通模式使用去噪、锐化和缩放。H.264 编码，部分音频格式可能无法保留。第一次请使用短视频测试。",12,false);
+    TextView tip=text("重点：请使用【高画质 AI · Real-ESRGAN】验证效果。该模式通过逐帧 RGB 神经网络提升细节，可能非常慢，请先测试 2～5 秒短片。快速 AI 使用旧版 FSRCNN，效果较弱。超分辨率不能保证恢复真实失焦细节。",12,false);
     tip.setTextColor(Color.rgb(170,185,202));row(root,tip,16);
   }
   private void addMode(int id,String s,boolean checked) {
@@ -133,7 +134,27 @@ public final class MainActivity extends Activity {
       video=u;
       if(req==OPEN_FILE)try{getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
       info.setText(describe(u));preview.setVisibility(View.VISIBLE);preview.setVideoURI(u);
-      status.setText("选择模式后可开始导出。");progress.setProgress(0);
+      // For eligible clips select the stronger neural engine automatically.
+      try {
+        MediaMetadataRetriever m=new MediaMetadataRetriever();
+        try {
+          m.setDataSource(this,u);
+          String ws=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+          String hs=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+          int vw=Integer.parseInt(ws),vh=Integer.parseInt(hs);
+          if(Math.max(vw,vh)<=1280&&Math.min(vw,vh)<=720) {
+            modes.check(14);
+            status.setText("已选择高画质 Real-ESRGAN；请先处理几秒短视频，可能非常慢。");
+          } else {
+            modes.check(11);
+            status.setText("原视频超过 720P，默认普通增强；高画质 AI 暂不支持。");
+          }
+        } finally {m.release();}
+      } catch(Exception e) {
+        modes.check(10);
+        status.setText("请选择增强模式后开始导出。");
+      }
+      progress.setProgress(0);
     } else if(req==SAVE) start(u);
   }
   private String describe(Uri uri) {
@@ -154,7 +175,7 @@ public final class MainActivity extends Activity {
   private void start(Uri output) {
     if(video==null||working)return;
     final Uri input=video;final int selected=modes.getCheckedRadioButtonId();
-    final int mode=selected==11?OutputProfile.HD:selected==12?OutputProfile.DOUBLE:selected==13?OutputProfile.AI:OutputProfile.NATIVE;
+    final int mode=selected==11?OutputProfile.HD:selected==12?OutputProfile.DOUBLE:selected==13?OutputProfile.AI:selected==14?OutputProfile.QUALITY_AI:OutputProfile.NATIVE;
     working=true;canceled.set(false);choose.setEnabled(false);browse.setEnabled(false);run.setEnabled(false);stop.setEnabled(true);
     progress.setProgress(0);status.setText("准备解码器和模型…");preview.pause();
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
