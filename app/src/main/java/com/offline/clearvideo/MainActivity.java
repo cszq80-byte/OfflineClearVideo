@@ -17,17 +17,37 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.*;
-import java.util.concurrent.atomic.AtomicBoolean;
+import android.os.Handler;
+import android.os.Looper;
+import android.content.pm.PackageManager;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
   private static final int OPEN_FILE=7001,SAVE=7002,OPEN_GALLERY=7003;
-  private final AtomicBoolean canceled = new AtomicBoolean();
+  private final Handler progressHandler = new Handler(Looper.getMainLooper());
+  private boolean polling;
+  private ProcessingService.Snapshot lastSnapshot;
   private final int bg=Color.rgb(12,19,32),panel=Color.rgb(26,37,54),teal=Color.rgb(78,219,201);
   private Uri video;
-  private boolean working;
+  private final Runnable observer = new Runnable() {
+    @Override public void run() {
+      if(!polling)return;
+      ProcessingService.Snapshot snapshot=ProcessingService.snapshot();
+      boolean active=snapshot.running;
+      if(choose!=null)choose.setEnabled(!active);
+      if(browse!=null)browse.setEnabled(!active);
+      if(run!=null)run.setEnabled(!active);
+      if(stop!=null)stop.setEnabled(active);
+      if(lastSnapshot!=snapshot){
+        lastSnapshot=snapshot;
+        if(status!=null&&!"尚未开始".equals(snapshot.message))status.setText(snapshot.message);
+        if(progress!=null)progress.setProgress(snapshot.progress);
+      }
+      progressHandler.postDelayed(this,650);
+    }
+  };
   private TextView status,info;
   private ProgressBar progress;
   private Button choose,browse,run,stop;
@@ -54,6 +74,10 @@ public final class MainActivity extends Activity {
   }
   @Override public void onCreate(Bundle saved){
     super.onCreate(saved);getWindow().setStatusBarColor(bg);getWindow().setNavigationBarColor(bg);
+    // Android 13+ may not display task progress if notifications are denied.
+    if(Build.VERSION.SDK_INT>=33 &&
+       checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
+       requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},901);
     ScrollView scroll=new ScrollView(this);scroll.setBackgroundColor(bg);
     LinearLayout root=new LinearLayout(this);root.setOrientation(1);root.setPadding(px(20),px(25),px(20),px(30));
     scroll.addView(root);setContentView(scroll);
@@ -80,8 +104,12 @@ public final class MainActivity extends Activity {
     progress.setMax(100);progress.setProgressTintList(ColorStateList.valueOf(teal));row(output,progress,15);
     status=text("尚未开始",13,false);row(output,status,8);
     stop=button("取消处理");row(output,stop,12);stop.setEnabled(false);
-    stop.setOnClickListener(v->{canceled.set(true);status.setText("正在取消…");stop.setEnabled(false);});
-    TextView tip=text("重点：请使用【高画质 AI · Real-ESRGAN】验证效果。该模式通过逐帧 RGB 神经网络提升细节，可能非常慢，请先测试 2～5 秒短片。快速 AI 使用旧版 FSRCNN，效果较弱。超分辨率不能保证恢复真实失焦细节。",12,false);
+    stop.setOnClickListener(v->{
+      ProcessingService.requestCancel(this);
+      status.setText("已请求取消，正在安全释放编解码器…");
+      stop.setEnabled(false);
+    });
+    TextView tip=text("v0.6：视频使用前台服务处理，切换应用或锁屏可继续，通知栏显示进度与取消按钮；请允许通知和后台耗电。高画质 AI 非常耗电耗时，首次建议 2～5 秒短片。系统强制停止、内存不足或高温时仍可能中断。",12,false);
     tip.setTextColor(Color.rgb(170,185,202));row(root,tip,16);
   }
   private void addMode(int id,String s,boolean checked) {
@@ -98,7 +126,7 @@ public final class MainActivity extends Activity {
     return i;
   }
   private void pickVideoFromGallery() {
-    if(working)return;
+    if(ProcessingService.isWorking())return;
     if(Build.VERSION.SDK_INT>=33) {
       try {
         startActivityForResult(galleryIntent(true),OPEN_GALLERY);
@@ -112,7 +140,7 @@ public final class MainActivity extends Activity {
     }
   }
   private void pickVideoFromFiles() {
-    if(working)return;
+    if(ProcessingService.isWorking())return;
     Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
     i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("video/*");
     i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -120,7 +148,7 @@ public final class MainActivity extends Activity {
     catch(ActivityNotFoundException e){status.setText("系统没有可用的文件管理器。");}
   }
   private void saveVideo() {
-    if(working)return;
+    if(ProcessingService.isWorking())return;
     if(video==null){status.setText("请先选择视频。");return;}
     Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("video/mp4");
     i.putExtra(Intent.EXTRA_TITLE,"高清增强_"+new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date())+".mp4");
@@ -132,7 +160,9 @@ public final class MainActivity extends Activity {
     Uri u=data.getData();
     if(req==OPEN_FILE||req==OPEN_GALLERY) {
       video=u;
-      if(req==OPEN_FILE)try{getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+      // Photo Picker grants may also be persisted on supported Android versions.
+      try{getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION);}
+      catch(Exception ignored){}
       info.setText(describe(u));preview.setVisibility(View.VISIBLE);preview.setVideoURI(u);
       // For eligible clips select the stronger neural engine automatically.
       try {
@@ -155,7 +185,12 @@ public final class MainActivity extends Activity {
         status.setText("请选择增强模式后开始导出。");
       }
       progress.setProgress(0);
-    } else if(req==SAVE) start(u);
+    } else if(req==SAVE) {
+      try{getContentResolver().takePersistableUriPermission(u,
+          Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);}
+      catch(Exception ignored){}
+      start(u);
+    }
   }
   private String describe(Uri uri) {
     String name="已选择视频";
@@ -173,30 +208,41 @@ public final class MainActivity extends Activity {
     return name;
   }
   private void start(Uri output) {
-    if(video==null||working)return;
-    final Uri input=video;final int selected=modes.getCheckedRadioButtonId();
-    final int mode=selected==11?OutputProfile.HD:selected==12?OutputProfile.DOUBLE:selected==13?OutputProfile.AI:selected==14?OutputProfile.QUALITY_AI:OutputProfile.NATIVE;
-    working=true;canceled.set(false);choose.setEnabled(false);browse.setEnabled(false);run.setEnabled(false);stop.setEnabled(true);
-    progress.setProgress(0);status.setText("准备解码器和模型…");preview.pause();
-    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-    new Thread(()->{
-      boolean good=false;String message;
-      try {
-        VideoProcessor.Result r=VideoProcessor.process(getApplicationContext(),input,output,mode,
-          (percent,description)->runOnUiThread(()->{if(!isDestroyed()){progress.setProgress(percent);status.setText(description);}}),canceled);
-        message="完成 · "+r.width+"×"+r.height+" · "+r.frames+" 帧"+
-          (r.retainedAudio?" · 已保留声音":r.audioPresent?" · 注意：原始音频格式不兼容，已静音":"");
-        good=true;
-      }catch(InterruptedException e){message="处理已取消，输出文件将删除。";}
-      catch(OutOfMemoryError e){message="内存不足，请用短视频或较低的增强档位。";}
-      catch(Exception e){message="处理失败："+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage());}
-      if(!good)try{getContentResolver().delete(output,null,null);}catch(Exception ignored){}
-      final String result=message;final boolean success=good;
-      runOnUiThread(()->{if(isDestroyed())return;working=false;choose.setEnabled(true);browse.setEnabled(true);run.setEnabled(true);
-        stop.setEnabled(false);status.setText(result);if(success)progress.setProgress(100);
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-      });
-    },"offline-processor").start();
+    if(video==null||ProcessingService.isWorking())return;
+    final int selected=modes.getCheckedRadioButtonId();
+    final int mode=selected==11?OutputProfile.HD:selected==12?OutputProfile.DOUBLE:
+        selected==13?OutputProfile.AI:selected==14?OutputProfile.QUALITY_AI:OutputProfile.NATIVE;
+    // Release the preview player to save memory for the native AI runtime.
+    preview.stopPlayback();
+    preview.setVisibility(View.GONE);
+    try {
+      ProcessingService.start(this,video,output,mode);
+      status.setText("后台任务启动中，可切换应用。通过常驻通知查看进度。");
+      progress.setProgress(0);
+      choose.setEnabled(false);browse.setEnabled(false);run.setEnabled(false);stop.setEnabled(true);
+    }catch(Exception e){
+      status.setText("处理任务无法启动："+e.getMessage());
+      try{getContentResolver().delete(output,null,null);}catch(Exception ignored){}
+    }
   }
-  @Override protected void onDestroy(){canceled.set(true);if(preview!=null)preview.stopPlayback();super.onDestroy();}
+  @Override protected void onResume(){
+    super.onResume();
+    polling=true;
+    progressHandler.removeCallbacks(observer);
+    progressHandler.post(observer);
+    if(!ProcessingService.isWorking() &&
+       getSharedPreferences("processing_state",MODE_PRIVATE).getBoolean("unfinished",false)) {
+      status.setText("上次处理意外中断，可能被系统终止。请重试，旧输出可能不完整。");
+    }
+  }
+  @Override protected void onPause(){
+    polling=false;
+    progressHandler.removeCallbacks(observer);
+    super.onPause();
+  }
+  @Override protected void onDestroy(){
+    // The foreground service owns the video job. Never cancel it just because an Activity dies.
+    if(preview!=null)preview.stopPlayback();
+    super.onDestroy();
+  }
 }

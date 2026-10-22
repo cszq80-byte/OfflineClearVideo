@@ -46,7 +46,7 @@ jobs:
           sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app/build/outputs/apk/debug/sha256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: OfflineClearVideo-v0.5-RealESRGAN-APK
+          name: OfflineClearVideo-v0.6-Background-Fix-APK
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/sha256.txt

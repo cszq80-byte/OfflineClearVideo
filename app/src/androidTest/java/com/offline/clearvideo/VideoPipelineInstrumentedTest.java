@@ -1,6 +1,8 @@
 package com.offline.clearvideo;
 
+import android.app.Activity;
 import android.content.Context;
+import android.os.SystemClock;
 import android.content.Intent;
 import android.provider.MediaStore;
 import android.media.Image;
@@ -129,6 +131,35 @@ public class VideoPipelineInstrumentedTest {
                 assertTrue("No valid video track",valid);
             } finally { verifier.release(); }
         } finally { inputFile.delete();outputFile.delete(); }
+    }
+
+    /** Verifies the service outlives Activity finish and still writes a valid MP4. */
+    @Test public void foregroundServiceSurvivesActivityDestruction() throws Exception {
+        File in=new File(context.getCacheDir(),"service_input.mp4");
+        File out=new File(context.getCacheDir(),"service_output.mp4");
+        try {
+            assertFalse("Previous video job still active",ProcessingService.isWorking());
+            encodeSampleVideo(in);
+            Intent open=new Intent(context,MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Activity activity=InstrumentationRegistry.getInstrumentation().startActivitySync(open);
+            ProcessingService.start(context,Uri.fromFile(in),Uri.fromFile(out),OutputProfile.AI);
+            // Destroy the Activity while the separate foreground service runs.
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(activity::finish);
+            long deadline=SystemClock.elapsedRealtime()+120000;
+            while(ProcessingService.isWorking()&&SystemClock.elapsedRealtime()<deadline)
+                Thread.sleep(100);
+            assertFalse("Foreground job timed out",ProcessingService.isWorking());
+            assertTrue("Service job did not generate MP4: "+ProcessingService.snapshot().message,out.length()>500);
+            MediaExtractor check=new MediaExtractor();
+            try {
+                check.setDataSource(out.getAbsolutePath());
+                assertTrue(check.getTrackCount()>0);
+            }finally{check.release();}
+        }finally {
+            if(ProcessingService.isWorking())ProcessingService.requestCancel(context);
+            in.delete();out.delete();
+        }
     }
 
     private static void fillPlane(Image.Plane plane,int width,int height,int value) {

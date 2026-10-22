@@ -1,18 +1,26 @@
-# OfflineClearVideo — 离线 AI 视频修复（v0.5，实验性）
-Android 8.0+；无 INTERNET 权限，全部视频逐帧处理均在手机离线完成。
+# OfflineClearVideo v0.6 — 安卓离线 AI 视频增强（后台中断修复）
+Android 8.0+，本地离线运行；无 INTERNET 权限。
 
-## 真正的 AI 选项
-- **高画质 AI（Real-ESRGAN x4v3 → 2x 输出）**：RGB 全彩模型，生成更丰富的画面细节；默认推荐仅针对短片测试，移动端 CPU 推理可能非常慢。输入上限 720P。
-- **快速 AI（FSRCNN）**：旧版，仅亮度通道增强，细节改善有限。
-- 普通高清/4K：传统锐化与图像插值，只提高分辨率，不能产生新细节。
+## v0.6 核心修复
+- 视频处理搬出 Activity 线程，进入独立的 Android Foreground Service（Android 14 targetSdk34 的 dataSync 类型，支持本地文件处理）。
+- 下拉通知栏可见进度与“取消”。界面销毁、切换后台不再主动取消处理。
+- 服务会在任务进行时持有带超时保护的 PARTIAL_WAKE_LOCK，结束后释放；锁屏也能继续计算。
+- 视频预览在任务开始时释放，降低编解码器并行占用内存。
+- 服务记录“处理中”状态；如果整个进程被强制杀死，重新打开 App 会提示可能存在不完整的输出。
+- 请求 Android 13+ 通知权限以便观察任务；拒绝通知权限可能影响进度的可见性。
+- 处理失败或取消时尝试删除不完整的输出文件。
+- AI 超分辨率仍为 Real-ESRGAN x4v3 (RGB 处理再缩到 2x) + 旧 FSRCNN 快速模式。
 
-## 模型和校验
-编译时从 `CoderViking/realesr-general-x4v3-onnx` 下载 Real-ESRGAN 的 ONNX 导出，SHA256 严格校验；采用 ONNX Runtime Android CPU 推理。模型原为 x4，局部裁切、推理之后下采样到 2x，控制内存和导出大小。公开权重 BSD-3-Clause。另保留旧 FSRCNN 模型。
+## 使用建议
+第一步：长按图标 → 应用信息 → 电池/耗电管理 → 允许后台活动或不限制。可在最近任务中锁定本应用。
+第二步：先使用 2~5 秒视频测试高画质 AI，看到「视频增强进行中」通知后可以退到桌面或锁屏。
+第三步：观察通知进度；若任务完成应出现通知。若 App 整个进程被强制停止、遭遇原生内存不足或手机过热，前台服务也无法保证持续运行，且目前不支持断点恢复。
 
-工作流不仅测试模型和 MP4 导出，还在合成图案上验证新版模型与插值输出存在显著差异；合成图案对比不能证明用户实际视频必定显著改善。测试证据在 GitHub Actions 的构建产物内。
+## 兼容性与隐私
+视频仅在设备本地处理；不会发送云端。运行时无网络依赖，不含 INTERNET 权限。
+AAC/AMR 音轨可以直通，其他音轨可能静音。HDR/DRM 不支持。不同 Android 厂商编码器和后台策略需真机测试。
+请勿直接处理超长或重要的唯一原片；保留备份，短片先验证。
 
-## 已知限制
-新模型初版为 **CPU 推理**，可能每帧耗时数秒乃至更长，不建议直接处理长视频。不同手机的视频硬件编码兼容性仍需实测。失焦、噪点极重、严重压缩片源可能无法可靠恢复真实细节。输出一般为 H.264 MP4；AAC/AMR 音轨可直通，其他音频格式可能丢失。HDR/DRM 暂不支持。
-
-## 构建
-打开 GitHub Actions > Build Offline Android APK > 最近一次成功任务，下载 `OfflineClearVideo-v0.5-RealESRGAN-APK` ZIP，解压 app-debug.apk 安装。
+## APK
+GitHub Actions -> 最近一次 Build Offline Android APK 的成功构建 -> Artifacts -> OfflineClearVideo-v0.6-Background-Fix-APK。
+Debug APK 会随 CI 重签名，安装新版前可能需要卸载旧版。
