@@ -253,7 +253,10 @@ public final class MainActivity extends Activity {
       progress.setProgress(0);
       choose.setEnabled(false);browse.setEnabled(false);run.setEnabled(false);stop.setEnabled(true);
     }catch(Exception e){
-      status.setText("处理任务无法启动："+e.getMessage());
+      String problem=e.getMessage();
+      if(e instanceof SecurityException || (e.getCause() instanceof SecurityException))
+        problem="相册授权已过期，请重新从相册选一次视频";
+      status.setText("无法开始处理："+problem);
       try{getContentResolver().delete(output,null,null);}catch(Exception ignored){}
     }
   }

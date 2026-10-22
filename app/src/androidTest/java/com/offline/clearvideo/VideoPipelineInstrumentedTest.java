@@ -27,6 +27,21 @@ import static org.junit.Assert.*;
 public class VideoPipelineInstrumentedTest {
     private final Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();
 
+    @Test public void foregroundServiceNeverRequestsPhotoPickerWriteGrant(){
+        Uri source=Uri.parse("content://media/picker/0/com.android.providers.media.photopicker/media/1000083919");
+        Uri output=Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2Fenhanced.mp4");
+        Intent intent=ProcessingService.makeStartIntent(context,source,output,
+            OutputProfile.QUALITY_AI,DetailMixer.NATURAL);
+        assertEquals(source.toString(),intent.getStringExtra("input"));
+        assertEquals(output.toString(),intent.getStringExtra("output"));
+        assertEquals(OutputProfile.QUALITY_AI,intent.getIntExtra("mode",-1));
+        assertEquals(DetailMixer.NATURAL,intent.getIntExtra("detail_strength",-1));
+        assertEquals(ProcessingService.ACTION_START,intent.getAction());
+        assertNull("No ClipData grant is needed for another component under the same UID",intent.getClipData());
+        assertEquals("Do not attempt to regrant WRITE to read-only Photo Picker URIs",
+            0,intent.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION));
+    }
+
     @Test public void galleryPickerFiltersVideos() {
         Intent modern=MainActivity.galleryIntent(true);
         assertEquals(MediaStore.ACTION_PICK_IMAGES, modern.getAction());

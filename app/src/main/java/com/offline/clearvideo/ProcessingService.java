@@ -6,7 +6,8 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.ClipData;
+import android.os.ParcelFileDescriptor;
+import java.io.IOException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
@@ -60,21 +61,36 @@ public final class ProcessingService extends Service {
         if(state.running)throw new IllegalStateException("已有视频任务正在进行");
         if(source==null||target==null)throw new IllegalArgumentException("输入或输出视频地址为空");
         state=new Snapshot(true,0,"正在启动前台服务…");
-        Intent intent=new Intent(context,ProcessingService.class).setAction(ACTION_START);
-        intent.putExtra("input",source.toString());
-        intent.putExtra("output",target.toString());
-        intent.putExtra("mode",mode);
-        intent.putExtra("detail_strength",detailStrength);
-        ClipData clip=ClipData.newRawUri("input-video",source);
-        clip.addItem(new ClipData.Item(target));
-        intent.setClipData(clip);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        // The Photo Picker URI is READ ONLY. Previously, both source and
+        // destination were put in a single ClipData with READ|WRITE grant flags.
+        // Android applies those flags to ALL clip items and rejects granting
+        // WRITE on the read-only Photo Picker item. Both components run under
+        // this app's UID and already share URI permissions, so NO cross-app
+        // grants are necessary.
+        try(ParcelFileDescriptor check=context.getContentResolver().openFileDescriptor(source,"r")){
+            if(check==null)throw new IOException("无法读取已选视频");
+        }catch(SecurityException|IOException permissionError){
+            state=new Snapshot(false,0,"原视频无读取权限，请重新从相册或文件管理器选择");
+            throw new IllegalArgumentException("无法读取所选视频，请重新选择后重试",permissionError);
+        }
+        Intent intent=makeStartIntent(context,source,target,mode,detailStrength);
         try {context.startForegroundService(intent);}
         catch(RuntimeException failure) {
             state=new Snapshot(false,0,"前台任务无法启动："+failure.getMessage());
             throw failure;
         }
     }
+    /** Same-app IPC: extras only. Never request write access to Photo Picker URI. */
+    static Intent makeStartIntent(Context context,Uri source,Uri target,int mode,int strength) {
+        if(source==null||target==null)throw new IllegalArgumentException("视频地址缺失");
+        return new Intent(context,ProcessingService.class)
+            .setAction(ACTION_START)
+            .putExtra("input",source.toString())
+            .putExtra("output",target.toString())
+            .putExtra("mode",mode)
+            .putExtra("detail_strength",strength);
+    }
+
     static void requestCancel(Context context) {
         if(!state.running)return;
         Intent intent=new Intent(context,ProcessingService.class).setAction(ACTION_CANCEL);
