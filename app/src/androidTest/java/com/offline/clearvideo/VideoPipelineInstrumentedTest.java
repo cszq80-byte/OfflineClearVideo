@@ -143,6 +143,28 @@ public class VideoPipelineInstrumentedTest {
         } finally { inputFile.delete();outputFile.delete(); }
     }
 
+    /** The frame-comparison screen must be able to read local media and open safely. */
+    @Test public void localFrameComparisonOpensWithoutUploading() throws Exception {
+        File movie=new File(context.getCacheDir(),"compare_local.mp4");
+        try {
+            encodeSampleVideo(movie);
+            assertTrue(movie.length()>500);
+            Intent view=new Intent(context,FrameComparisonActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            view.putExtra("input",Uri.fromFile(movie).toString());
+            view.putExtra("output",Uri.fromFile(movie).toString());
+            Activity activity=InstrumentationRegistry.getInstrumentation().startActivitySync(view);
+            try {
+                assertNotNull(activity);
+                assertFalse("Comparison activity closed unexpectedly",activity.isFinishing());
+                Thread.sleep(700);
+                assertFalse("Comparison UI crashed",activity.isFinishing());
+            }finally {
+                InstrumentationRegistry.getInstrumentation().runOnMainSync(activity::finish);
+            }
+        }finally {movie.delete();}
+    }
+
     /** Verifies the service outlives Activity finish and still writes a valid MP4. */
     @Test public void foregroundServiceSurvivesActivityDestruction() throws Exception {
         File in=new File(context.getCacheDir(),"service_input.mp4");
