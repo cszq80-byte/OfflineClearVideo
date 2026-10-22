@@ -11,6 +11,7 @@ final class YuvEnhancer {
     static final class Scratch {
         final int sw,sh,dw,dh;
         final byte[] y,u,v,detail,oy,ou,ov;
+        byte[] baseY,baseU,baseV; // allocated only on first natural/strong frame, then reused
         Scratch(int sw,int sh,int dw,int dh) {
             this.sw=sw;this.sh=sh;this.dw=dw;this.dh=dh;
             y=new byte[sw*sh];detail=new byte[y.length];

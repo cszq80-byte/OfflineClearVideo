@@ -40,16 +40,20 @@ final class DetailMixer {
         if(s.dw!=s.sw*2||s.dh!=s.sh*2)
             throw new IllegalArgumentException("仅支持 2 倍 AI 后处理");
         // The baseline must use precisely the same geometry as the neural output.
-        byte[] baseY=new byte[s.oy.length];
-        byte[] baseU=new byte[s.ou.length];
-        byte[] baseV=new byte[s.ov.length];
+        // Balanced is exactly the network output and needs no allocations.
+        if(strength==BALANCED)return;
+        if(s.baseY==null || s.baseY.length!=s.oy.length){
+            s.baseY=new byte[s.oy.length];
+            s.baseU=new byte[s.ou.length];
+            s.baseV=new byte[s.ov.length];
+        }
+        byte[] baseY=s.baseY,baseU=s.baseU,baseV=s.baseV;
         YuvEnhancer.resize(s.y,s.sw,s.sh,baseY,s.dw,s.dh);
         int icw=(s.sw+1)/2,ich=(s.sh+1)/2;
         int ocw=(s.dw+1)/2,och=(s.dh+1)/2;
         YuvEnhancer.resize(s.u,icw,ich,baseU,ocw,och);
         YuvEnhancer.resize(s.v,icw,ich,baseV,ocw,och);
 
-        if(strength==BALANCED)return; // preserves v0.6 full-strength model output
         float yFactor=gain(strength);
         float colorFactor=strength==NATURAL?0.68f:1.03f;
         int yLimit=strength==NATURAL?60:92;
