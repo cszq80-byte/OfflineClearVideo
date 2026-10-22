@@ -145,8 +145,15 @@ public final class FrameComparisonActivity extends Activity {
         }catch(Exception ignored){}
         if(w>0&&h>0){
             float scale=Math.min(1f,1920f/Math.max(w,h));
-            return retriever.getScaledFrameAtTime(timeUs,MediaMetadataRetriever.OPTION_CLOSEST,
-                Math.max(2,Math.round(w*scale)),Math.max(2,Math.round(h*scale)));
+            int dw=Math.max(2,Math.round(w*scale)),dh=Math.max(2,Math.round(h*scale));
+            if(android.os.Build.VERSION.SDK_INT>=27)
+                return retriever.getScaledFrameAtTime(timeUs,MediaMetadataRetriever.OPTION_CLOSEST,dw,dh);
+            // Android 8.0 (API 26) lacks getScaledFrameAtTime.
+            Bitmap full=retriever.getFrameAtTime(timeUs,MediaMetadataRetriever.OPTION_CLOSEST);
+            if(full==null||scale>=1f)return full;
+            Bitmap resized=Bitmap.createScaledBitmap(full,dw,dh,true);
+            if(resized!=full)full.recycle();
+            return resized;
         }
         return retriever.getFrameAtTime(timeUs,MediaMetadataRetriever.OPTION_CLOSEST);
     }
