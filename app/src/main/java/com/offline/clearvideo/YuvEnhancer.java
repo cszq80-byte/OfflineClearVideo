@@ -40,7 +40,7 @@ final class YuvEnhancer {
     }
     /** New full-RGB neural path, deliberately separate from legacy FSRCNN. */
     static void transformHQ(Image source,Image target,Scratch b,
-                            RealEsrganEnhancer ai,boolean fullRange,boolean bt709,
+                            RealEsrganEnhancer ai,boolean fullRange,boolean bt709,int detailStrength,
                             AtomicBoolean cancel) throws Exception {
         if(source.getFormat()!=ImageFormat.YUV_420_888 ||
            target.getFormat()!=ImageFormat.YUV_420_888)
@@ -54,6 +54,9 @@ final class YuvEnhancer {
         read(p[1],s.left/2,s.top/2,cw,ch,b.u);
         read(p[2],s.left/2,s.top/2,cw,ch,b.v);
         ai.upscale(b,fullRange,bt709,cancel);
+        // Stable deterministic per-frame fidelity control; never claim
+        // this is true multi-frame optical-flow stabilization.
+        DetailMixer.apply(b,detailStrength);
         write(q[0],d.left,d.top,b.dw,b.dh,b.oy);
         write(q[1],d.left/2,d.top/2,(b.dw+1)/2,(b.dh+1)/2,b.ou);
         write(q[2],d.left/2,d.top/2,(b.dw+1)/2,(b.dh+1)/2,b.ov);

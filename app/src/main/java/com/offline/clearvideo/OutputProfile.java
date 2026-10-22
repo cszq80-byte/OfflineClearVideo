@@ -21,4 +21,12 @@ final class OutputProfile {
     static int bitrate(int w,int h,int fps) {
         return (int)Math.max(1_400_000L,Math.min(30_000_000L,(long)w*h*fps/10));
     }
+    static int bitrate(int w,int h,int fps,int mode) {
+        long pixels=(long)w*h*Math.max(1,fps);
+        if(mode==QUALITY_AI)
+            return (int)Math.max(4_000_000L,Math.min(55_000_000L,(pixels*19)/100));
+        if(mode==AI)
+            return (int)Math.max(2_000_000L,Math.min(38_000_000L,(pixels*15)/100));
+        return bitrate(w,h,fps);
+    }
 }

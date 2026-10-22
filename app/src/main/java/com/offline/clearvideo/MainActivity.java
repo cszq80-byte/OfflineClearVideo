@@ -40,6 +40,7 @@ public final class MainActivity extends Activity {
       if(browse!=null)browse.setEnabled(!active);
       if(run!=null)run.setEnabled(!active);
       if(stop!=null)stop.setEnabled(active);
+      if(compareButton!=null)compareButton.setEnabled(!active);
       if(lastSnapshot!=snapshot){
         lastSnapshot=snapshot;
         if(status!=null&&!"尚未开始".equals(snapshot.message))status.setText(snapshot.message);
@@ -50,8 +51,8 @@ public final class MainActivity extends Activity {
   };
   private TextView status,info;
   private ProgressBar progress;
-  private Button choose,browse,run,stop;
-  private RadioGroup modes;
+  private Button choose,browse,run,stop,compareButton;
+  private RadioGroup modes,detailOptions;
   private VideoView preview;
   private int px(float dp){return (int)(getResources().getDisplayMetrics().density*dp+0.5f);}
   private TextView text(String s,int size,boolean bold){
@@ -98,8 +99,36 @@ public final class MainActivity extends Activity {
     addMode(13,"快速 AI · FSRCNN 2 倍（旧版，提升有限）",false);
     addMode(14,"高画质 AI · Real-ESRGAN 2 倍（720P以下，很慢）",false);
     row(settings,modes,8);
+    TextView strengthTitle=text("高画质 AI 细节强度（仅 Real-ESRGAN 模式生效）",14,true);
+    row(settings,strengthTitle,12);
+    detailOptions=new RadioGroup(this);
+    detailOptions.setOrientation(1);
+    RadioButton natural=new RadioButton(this);
+    natural.setId(30);natural.setText("自然：减少假纹理，保留皮肤原貌");
+    RadioButton balanced=new RadioButton(this);
+    balanced.setId(31);balanced.setText("均衡：完整保留 AI 模型输出");
+    RadioButton strong=new RadioButton(this);
+    strong.setId(32);strong.setText("明显：提高细节对比，可能放大假纹理");
+    for(RadioButton b:new RadioButton[]{natural,balanced,strong}){
+      b.setTextSize(13);b.setTextColor(-1);
+      b.setButtonTintList(ColorStateList.valueOf(teal));
+      detailOptions.addView(b);
+    }
+    detailOptions.check(31);
+    row(settings,detailOptions,6);
     LinearLayout output=section(root,"③ 导出高清 MP4");
-    run=button("开始离线处理");row(output,run,8);run.setOnClickListener(v->saveVideo());
+    run=button("开始离线处理（高码率导出）");row(output,run,8);run.setOnClickListener(v->saveVideo());
+    compareButton=button("查看上次导出：原片 / AI 分屏对比");
+    row(output,compareButton,9);
+    compareButton.setOnClickListener(v->{
+      String result=getSharedPreferences("processing_state",MODE_PRIVATE)
+          .getString("last_output",null);
+      if(result==null){
+        status.setText("还没有成功导出的视频，处理完成后再查看本地对比。");
+        return;
+      }
+      startActivity(new Intent(this,FrameComparisonActivity.class));
+    });
     progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
     progress.setMax(100);progress.setProgressTintList(ColorStateList.valueOf(teal));row(output,progress,15);
     status=text("尚未开始",13,false);row(output,status,8);
@@ -109,7 +138,7 @@ public final class MainActivity extends Activity {
       status.setText("已请求取消，正在安全释放编解码器…");
       stop.setEnabled(false);
     });
-    TextView tip=text("v0.6：视频使用前台服务处理，切换应用或锁屏可继续，通知栏显示进度与取消按钮；请允许通知和后台耗电。高画质 AI 非常耗电耗时，首次建议 2～5 秒短片。系统强制停止、内存不足或高温时仍可能中断。",12,false);
+    TextView tip=text("v0.7：高画质 AI 使用更高视频码率，新增自然/均衡/明显三档和完全离线的原片分屏对比。增强不等于恢复真实毛孔或衣服纤维；请放大原片与结果自行检查。处理时仍可能发热，首次建议 2～5 秒短片。",12,false);
     tip.setTextColor(Color.rgb(170,185,202));row(root,tip,16);
   }
   private void addMode(int id,String s,boolean checked) {
@@ -212,11 +241,14 @@ public final class MainActivity extends Activity {
     final int selected=modes.getCheckedRadioButtonId();
     final int mode=selected==11?OutputProfile.HD:selected==12?OutputProfile.DOUBLE:
         selected==13?OutputProfile.AI:selected==14?OutputProfile.QUALITY_AI:OutputProfile.NATIVE;
+    final int chosen=detailOptions.getCheckedRadioButtonId();
+    final int strength=chosen==30?DetailMixer.NATURAL:
+        chosen==32?DetailMixer.STRONG:DetailMixer.BALANCED;
     // Release the preview player to save memory for the native AI runtime.
     preview.stopPlayback();
     preview.setVisibility(View.GONE);
     try {
-      ProcessingService.start(this,video,output,mode);
+      ProcessingService.start(this,video,output,mode,strength);
       status.setText("后台任务启动中，可切换应用。通过常驻通知查看进度。");
       progress.setProgress(0);
       choose.setEnabled(false);browse.setEnabled(false);run.setEnabled(false);stop.setEnabled(true);

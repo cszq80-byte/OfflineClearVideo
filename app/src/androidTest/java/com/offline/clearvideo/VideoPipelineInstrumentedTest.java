@@ -38,6 +38,16 @@ public class VideoPipelineInstrumentedTest {
         assertTrue(fallback.hasCategory(Intent.CATEGORY_OPENABLE));
     }
 
+    @Test public void detailStrengthChangesOutputAndCanPreserveFullAi(){
+        byte[] baseline={(byte)100,(byte)150,(byte)220};
+        byte[] neural={(byte)110,(byte)170,(byte)245};
+        byte[] conservative=neural.clone();
+        DetailMixer.mix(baseline,conservative,3,DetailMixer.gain(DetailMixer.NATURAL),80);
+        assertTrue((conservative[0]&255)<(neural[0]&255));
+        byte[] full=neural.clone();
+        DetailMixer.mix(baseline,full,3,DetailMixer.gain(DetailMixer.BALANCED),255);
+        assertArrayEquals(neural,full);
+    }
     @Test public void realEsrganProducesDifferentDetailThanOrdinaryInterpolation() throws Exception {
         YuvEnhancer.Scratch scratch=new YuvEnhancer.Scratch(64,64,128,128);
         for(int y=0;y<64;y++)for(int x=0;x<64;x++)

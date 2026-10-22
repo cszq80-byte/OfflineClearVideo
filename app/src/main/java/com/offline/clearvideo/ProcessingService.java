@@ -53,6 +53,10 @@ public final class ProcessingService extends Service {
 
     /** Must be called while the app is visible (Android 12+ background-start restrictions). */
     static void start(Context context,Uri source,Uri target,int mode) {
+        start(context,source,target,mode,DetailMixer.BALANCED);
+    }
+    static void start(Context context,Uri source,Uri target,int mode,int detailStrength) {
+        DetailMixer.validate(detailStrength);
         if(state.running)throw new IllegalStateException("已有视频任务正在进行");
         if(source==null||target==null)throw new IllegalArgumentException("输入或输出视频地址为空");
         state=new Snapshot(true,0,"正在启动前台服务…");
@@ -60,6 +64,7 @@ public final class ProcessingService extends Service {
         intent.putExtra("input",source.toString());
         intent.putExtra("output",target.toString());
         intent.putExtra("mode",mode);
+        intent.putExtra("detail_strength",detailStrength);
         ClipData clip=ClipData.newRawUri("input-video",source);
         clip.addItem(new ClipData.Item(target));
         intent.setClipData(clip);
@@ -98,6 +103,7 @@ public final class ProcessingService extends Service {
         if(worker!=null&&worker.isAlive())return START_NOT_STICKY;
         final Uri input,output;
         final int mode=intent.getIntExtra("mode",OutputProfile.NATIVE);
+        final int detailStrength=intent.getIntExtra("detail_strength",DetailMixer.BALANCED);
         try {
             input=Uri.parse(intent.getStringExtra("input"));
             output=Uri.parse(intent.getStringExtra("output"));
@@ -116,12 +122,12 @@ public final class ProcessingService extends Service {
         final String outputText=output.toString();
         getSharedPreferences(PREFS,MODE_PRIVATE).edit()
             .putBoolean("unfinished",true).putString("output_uri",outputText).apply();
-        worker=new Thread(()->process(input,output,mode,startId),"offline-video-foreground");
+        worker=new Thread(()->process(input,output,mode,detailStrength,startId),"offline-video-foreground");
         worker.start();
         return START_NOT_STICKY;
     }
 
-    private void process(Uri input,Uri output,int mode,int startId) {
+    private void process(Uri input,Uri output,int mode,int detailStrength,int startId) {
         boolean success=false;
         String message;
         PowerManager.WakeLock lock=null;
@@ -132,7 +138,7 @@ public final class ProcessingService extends Service {
                 lock.setReferenceCounted(false);
                 lock.acquire(2*60*60*1000L); // safety timeout, released in finally
             }
-            VideoProcessor.Result result=VideoProcessor.process(this,input,output,mode,
+            VideoProcessor.Result result=VideoProcessor.process(this,input,output,mode,detailStrength,
                 (percent,detail)->progress(percent,detail),canceled);
             message="完成："+result.width+"×"+result.height+"，共"+result.frames+"帧"+
                     (result.retainedAudio?"，已保留音轨":result.audioPresent?"，音轨不兼容":"");
@@ -149,8 +155,15 @@ public final class ProcessingService extends Service {
             if(lock!=null&&lock.isHeld())try{lock.release();}catch(Exception ignored){}
         }
         if(!success)try{getContentResolver().delete(output,null,null);}catch(Exception ignored){}
-        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putBoolean("unfinished",false)
-            .remove("output_uri").putString("last_message",message).apply();
+        android.content.SharedPreferences.Editor editor=getSharedPreferences(PREFS,MODE_PRIVATE).edit()
+            .putBoolean("unfinished",false).remove("output_uri").putString("last_message",message);
+        if(success){
+            editor.putString("last_input",input.toString())
+                .putString("last_output",output.toString())
+                .putInt("last_mode",mode)
+                .putInt("last_strength",detailStrength);
+        }
+        editor.apply();
         final String lastMessage=message;
         final boolean completed=success;
         state=new Snapshot(false,completed?100:0,lastMessage);

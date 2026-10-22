@@ -23,6 +23,11 @@ final class VideoProcessor {
     }
     static Result process(Context context,Uri source,Uri destination,int mode,
                           Listener listener,AtomicBoolean canceled) throws Exception {
+        return process(context,source,destination,mode,DetailMixer.BALANCED,listener,canceled);
+    }
+    static Result process(Context context,Uri source,Uri destination,int mode,int detailStrength,
+                          Listener listener,AtomicBoolean canceled) throws Exception {
+        DetailMixer.validate(detailStrength);
         if(source.equals(destination))throw new IllegalArgumentException("不能覆盖原视频");
         if(canceled.get())throw new InterruptedException("已取消");
         MediaExtractor vx=null,ax=null;
@@ -73,21 +78,35 @@ final class VideoProcessor {
             final boolean bt709=integer(vf,MediaFormat.KEY_COLOR_STANDARD,1)==1;
             MediaFormat ef=MediaFormat.createVideoFormat("video/avc",w,h);
             ef.setInteger(MediaFormat.KEY_COLOR_FORMAT,MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
-            ef.setInteger(MediaFormat.KEY_BIT_RATE,OutputProfile.bitrate(w,h,fps));
+            final int preferredBitrate=OutputProfile.bitrate(w,h,fps,mode);
+            final int fallbackBitrate=OutputProfile.bitrate(w,h,fps);
+            ef.setInteger(MediaFormat.KEY_BIT_RATE,preferredBitrate);
             ef.setInteger(MediaFormat.KEY_FRAME_RATE,fps);
             ef.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL,2);
             for(String key:new String[]{MediaFormat.KEY_COLOR_STANDARD,MediaFormat.KEY_COLOR_TRANSFER,MediaFormat.KEY_COLOR_RANGE})
                 if(vf.containsKey(key))ef.setInteger(key,integer(vf,key,0));
             Exception lastError=null;
-            for(String name:encoders(w,h,fps)) {
-                MediaCodec candidate=null;
-                try {
-                    candidate=MediaCodec.createByCodecName(name);
-                    candidate.configure(ef,null,null,MediaCodec.CONFIGURE_FLAG_ENCODE);
-                    candidate.start();encoder=candidate;break;
-                } catch(Exception e) {
-                    lastError=e;if(candidate!=null){try{candidate.stop();}catch(Exception ignored){}try{candidate.release();}catch(Exception ignored){}}
+            // Some hardware encoders reject high target bitrates. Only fall back
+            // to the baseline bitrate if no encoder accepts the quality target.
+            int[] rates=preferredBitrate==fallbackBitrate?
+                new int[]{preferredBitrate}:new int[]{preferredBitrate,fallbackBitrate};
+            for(int rate:rates) {
+                ef.setInteger(MediaFormat.KEY_BIT_RATE,rate);
+                for(String name:encoders(w,h,fps)) {
+                    MediaCodec candidate=null;
+                    try {
+                        candidate=MediaCodec.createByCodecName(name);
+                        candidate.configure(ef,null,null,MediaCodec.CONFIGURE_FLAG_ENCODE);
+                        candidate.start();encoder=candidate;break;
+                    }catch(Exception e) {
+                        lastError=e;
+                        if(candidate!=null){
+                            try{candidate.stop();}catch(Exception ignored){}
+                            try{candidate.release();}catch(Exception ignored){}
+                        }
+                    }
                 }
+                if(encoder!=null)break;
             }
             if(encoder==null)throw new IllegalStateException("手机不能以此分辨率编码，请降低档位",lastError);
             vx.selectTrack(vt);
@@ -168,7 +187,7 @@ final class VideoProcessor {
                                 if(scratch==null)
                                     scratch=new YuvEnhancer.Scratch(src.getCropRect().width(),src.getCropRect().height(),w,h);
                                 if(quality!=null)
-                                    YuvEnhancer.transformHQ(src,dst,scratch,quality,fullRange,bt709,canceled);
+                                    YuvEnhancer.transformHQ(src,dst,scratch,quality,fullRange,bt709,detailStrength,canceled);
                                 else
                                     YuvEnhancer.transform(src,dst,scratch,ai,fullRange,canceled);
                             }finally {if(src!=null)src.close();if(dst!=null)dst.close();}

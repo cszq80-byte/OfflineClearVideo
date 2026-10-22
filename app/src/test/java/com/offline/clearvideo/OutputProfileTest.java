@@ -9,5 +9,12 @@ public class OutputProfileTest {
   @Test public void normalSize(){assertArrayEquals(new int[]{1920,1080},OutputProfile.size(1920,1080,OutputProfile.NATIVE));}
   @Test(expected=IllegalArgumentException.class) public void aiLimit(){OutputProfile.size(1920,1080,OutputProfile.AI);}
   @Test(expected=IllegalArgumentException.class) public void fourKInputLimit(){OutputProfile.size(4096,2160,OutputProfile.NATIVE);}
+  @Test public void highQualityBitrateExceedsBaseline(){
+    assertTrue(OutputProfile.bitrate(1920,1080,30,OutputProfile.QUALITY_AI)>
+               OutputProfile.bitrate(1920,1080,30));
+  }
+  @Test public void qualityBitrateHasSafeMaximum(){
+    assertTrue(OutputProfile.bitrate(3840,2160,60,OutputProfile.QUALITY_AI)<=55000000);
+  }
   @Test public void bitrateBounds(){assertTrue(OutputProfile.bitrate(640,480,24)>0);assertTrue(OutputProfile.bitrate(3840,2160,60)<=30000000);}
 }
